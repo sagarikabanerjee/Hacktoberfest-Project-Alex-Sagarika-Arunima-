@@ -11,10 +11,15 @@
   Left:  "Awaiting approval" list (click a report to review it)
   Right: the review form for the selected report
 
+  Where the reports come from:
+    - pending_reports.js, made by running:  python make_review_list.py
+      (real Gemma output for the test notes; refresh the page after running it)
+    - if that file doesn't exist yet: the 5 SAMPLE_QUEUE reports below
+
   To change it:
     1. FORM (below): the 4 sections of the official form, their labels, order, and field types
     2. SAMPLE_QUEUE: fake reports in the team's JSON format (null = missing -> yellow)
-  Save, then refresh the browser. Click "Reset sample reports" to reload SAMPLE_QUEUE.
+  Save, then refresh the browser. Click "Reset list" to start the list over.
 
   For teammates:
     ReviewForm.addPending(reportJson, originalNote)  -> adds a Gemma report to the list
@@ -112,7 +117,7 @@
       <div class="card">
         <div class="queue-head"><h2>Awaiting approval</h2><span id="queueCount" class="queue-count"></span></div>
         <div id="queue" class="queue"></div>
-        <button type="button" class="linkbtn" id="resetQueueBtn">Reset sample reports</button>
+        <button type="button" class="linkbtn" id="resetQueueBtn">Reset list</button>
       </div>
       <div class="card note" id="noteCard">
         <h2>Original note</h2>
@@ -151,6 +156,8 @@
   </div>
 </div>
 
+<!-- Gemma's results for the test notes, made by make_review_list.py (fine if it doesn't exist yet) -->
+<script src="pending_reports.js"></script>
 <script>
 /* =====================================================================
    1) FORM LAYOUT: mirrors the 4 sections of the official form.
@@ -295,9 +302,32 @@ function loadQueue() {
     const saved = JSON.parse(localStorage.getItem(STORE_KEY));
     if (Array.isArray(saved)) return saved;
   } catch (e) { /* nothing saved yet */ }
-  return sampleQueue();
+  return startingQueue();
 }
-const sampleQueue = () => SAMPLE_QUEUE.map(s => ({ id: newId(), note: s.note, report: clone(s.report), draft: null }));
+const sampleQueue = () => SAMPLE_QUEUE.map(s => ({ id: newId(), note: s.note, report: clone(s.report), draft: null, sample: true }));
+
+/* Reports from pending_reports.js (real Gemma output from make_review_list.py). */
+const BATCH_KEY = "incident_review_batch_v1";
+const hasBatch = () => Array.isArray(window.PENDING_REPORTS) && window.PENDING_REPORTS.length > 0;
+const batchQueue = () => window.PENDING_REPORTS
+  .filter(r => r && r.report && typeof r.report === "object")
+  .map(r => ({ id: newId(), note: r.note || "", report: clone(r.report), draft: null, label: r.name || "" }));
+const startingQueue = () => (hasBatch() ? batchQueue() : sampleQueue());
+
+/* When make_review_list.py has made a new file, swap the untouched sample reports for Gemma's. */
+function importNewBatch() {
+  if (!hasBatch()) return;
+  let seen = null;
+  try { seen = localStorage.getItem(BATCH_KEY); } catch (e) { /* not saved */ }
+  if (seen === String(window.PENDING_REPORTS_STAMP)) return;
+  const isSample = (item) => item.sample || SAMPLE_QUEUE.some(s => s.note === item.note);
+  // keep anything someone has already edited; replace the rest with the new Gemma results
+  const kept = queue.filter(item => item.draft || !(isSample(item) || item.label));
+  const keptLabels = new Set(kept.map(item => item.label).filter(Boolean));
+  queue = kept.concat(batchQueue().filter(item => !keptLabels.has(item.label)));
+  try { localStorage.setItem(BATCH_KEY, String(window.PENDING_REPORTS_STAMP)); } catch (e) { /* not saved */ }
+  saveQueue();
+}
 
 /* ---------- the "Awaiting approval" list ---------- */
 function countMissing(rep) {
@@ -322,7 +352,8 @@ function drawQueue() {
       <b>${esc(name)}</b><span class="sub">${esc(where)}</span>
       <span class="meta">${esc(when)}
         <span class="chip ${n ? "" : "ok"}">${n ? n + " missing" : "complete"}</span>
-        ${item.draft ? '<span class="chip edit">edited</span>' : ""}</span></button>`;
+        ${item.draft ? '<span class="chip edit">edited</span>' : ""}</span>
+      ${item.label ? `<span class="sub">test note: ${esc(item.label)}</span>` : ""}</button>`;
   }).join("");
   $("queue").querySelectorAll(".item").forEach(b => b.onclick = () => openItem(b.dataset.id));
 }
@@ -496,8 +527,9 @@ $("resetBtn").onclick = () => {
 };
 
 $("resetQueueBtn").onclick = () => {
-  if (!confirm("Replace the list with the 5 sample reports? Edits to reports in the list will be lost.")) return;
-  queue = sampleQueue();
+  const what = hasBatch() ? `Gemma's ${window.PENDING_REPORTS.length} test reports` : "the 5 sample reports";
+  if (!confirm(`Start the list over with ${what}? Edits to reports in the list will be lost.`)) return;
+  queue = startingQueue();
   saveQueue();
   openItem(queue[0].id);
 };
@@ -532,6 +564,8 @@ window.ReviewForm = {
 
 /* ---------- start ---------- */
 queue = loadQueue();
+importNewBatch();
+saveQueue();
 if (queue.length) openItem(queue[0].id); else showDone();
 </script>
 </body>
