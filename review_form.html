@@ -70,6 +70,10 @@
   details pre { white-space: pre-wrap; overflow-wrap: anywhere; }
   details pre, details textarea { width: 100%; font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 10px; overflow: auto; }
   .err { color: #c0392b; font-size: 13px; }
+  .field.na { opacity: .55; }
+  .field .na-note { display: none; font-size: 11.5px; color: var(--muted); }
+  .field.na .na-note { display: block; }
+  .gemma-missing { display: none; margin-bottom: 14px; padding: 10px 14px; border-radius: 10px; background: var(--miss); border: 1px solid var(--miss-line); color: var(--miss-ink); font-size: 13.5px; }
 </style>
 </head>
 <body>
@@ -90,6 +94,7 @@
     </aside>
 
     <main>
+      <div id="gemmaMissing" class="gemma-missing"></div>
       <form id="form" autocomplete="off"></form>
 
       <div class="bar">
@@ -120,52 +125,65 @@
            report.incident.date)
    type  = text | textarea | date | time | select | checkbox | list
    wide  = true to make the field full width
+   onlyIf = only needed when that yes/no field is ticked (otherwise it's
+           greyed out and not counted as missing)
    ===================================================================== */
 const FORM = [
-  { title: "1. Incident details", fields: [
+  { title: "Report", fields: [
+    { key: "date_of_report", label: "Date of report", type: "date" },
+  ]},
+  { title: "1. Person involved", fields: [
+    { key: "person_involved.full_name", label: "Full name", type: "text" },
+    { key: "person_involved.address", label: "Address", type: "text" },
+    { key: "person_involved.identification_type", label: "Identification type", type: "text" },
+    { key: "person_involved.identification_number", label: "Identification number", type: "text" },
+    { key: "person_involved.phone", label: "Phone", type: "text" },
+    { key: "person_involved.email", label: "Email", type: "text" },
+  ]},
+  { title: "2. Incident", fields: [
     { key: "incident.date", label: "Date of incident", type: "date" },
     { key: "incident.time", label: "Time of incident", type: "time" },
-    { key: "incident.location", label: "Location / ward", type: "text" },
-    { key: "incident.type", label: "Type of incident", type: "select",
-      options: ["Fall", "Medication error", "Equipment failure", "Pressure injury", "Aggression / violence", "Other"] },
+    { key: "incident.location", label: "Location", type: "text", wide: true },
+    { key: "incident.description", label: "Description of incident", type: "textarea", wide: true },
   ]},
-  { title: "2. People involved", fields: [
-    { key: "people.patient_id", label: "Patient ID / initials", type: "text" },
-    { key: "people.staff_involved", label: "Staff involved", type: "text" },
-    { key: "people.witnesses", label: "Witnesses (one per line)", type: "list" },
+  { title: "3. Injuries", fields: [
+    { key: "injuries.anyone_injured", label: "Was anyone injured?", type: "checkbox", wide: true },
+    { key: "injuries.description", label: "Injury description", type: "textarea", wide: true, onlyIf: "injuries.anyone_injured" },
   ]},
-  { title: "3. What happened", fields: [
-    { key: "event.description", label: "Description of incident", type: "textarea", wide: true },
-    { key: "event.immediate_action", label: "Immediate action taken", type: "textarea", wide: true },
-    { key: "event.injury", label: "Was anyone injured?", type: "checkbox" },
-    { key: "event.injury_details", label: "Injury details", type: "text" },
-  ]},
-  { title: "4. Notifications and sign-off", fields: [
-    { key: "follow_up.doctor_notified", label: "Doctor notified", type: "checkbox" },
-    { key: "follow_up.family_notified", label: "Family notified", type: "checkbox" },
-    { key: "follow_up.manager_notified", label: "Manager notified", type: "checkbox" },
-    { key: "follow_up.reported_by", label: "Reported by (name, role)", type: "text" },
+  { title: "4. Witnesses", fields: [
+    { key: "witnesses.were_there_witnesses", label: "Were there witnesses?", type: "checkbox", wide: true },
+    { key: "witnesses.details", label: "Witness details", type: "textarea", wide: true, onlyIf: "witnesses.were_there_witnesses" },
   ]},
 ];
 
 /* =====================================================================
-   2) FAKE GEMMA OUTPUT: replace with the team's fake JSON.
+   2) FAKE GEMMA OUTPUT, in the team's JSON format.
       null = not in the note -> shown in yellow
+      missing_info = what Gemma flagged as missing (shown at the top)
    ===================================================================== */
 const SAMPLE_REPORT = {
-  incident: { date: "2026-10-25", time: "03:40", location: "Ward 5A, bay 2", type: "Fall" },
-  people: { patient_id: "J.M. (MRN 0048213)", staff_involved: "Night nurse on 5A", witnesses: [] },
-  event: {
-    description: "Patient found on the floor beside the bed at about 03:40. Says he got up to use the toilet without calling for help. Bed rails were down.",
-    immediate_action: "Helped back to bed with a hoist. Observations taken, all normal. Neuro checks started.",
-    injury: true,
-    injury_details: "Small bruise on left elbow",
+  date_of_report: "2026-10-25",
+  person_involved: {
+    full_name: "Maria Lopez",
+    address: "12 Oak Street, Springfield",
+    identification_type: "Driver's license",
+    identification_number: null,
+    phone: "555-0142",
+    email: null,
   },
-  follow_up: { doctor_notified: true, family_notified: null, manager_notified: null, reported_by: null },
+  incident: {
+    date: "2026-10-25",
+    time: "14:00",
+    location: "Corridor near the Emergency Department entrance",
+    description: "Visitor slipped on a wet floor near the ER entrance. No wet-floor sign was in place.",
+  },
+  injuries: { anyone_injured: true, description: "Pain in right wrist. Nurse applied an ice pack." },
+  witnesses: { were_there_witnesses: true, details: null },
+  missing_info: ["identification_number", "email", "witness details"],
 };
 
 /* 3) The messy note the JSON came from (shown on the left for checking). */
-const SAMPLE_NOTE = `0340 found JM bed 2 on floor next to bed, says got up for toilet didnt call. rails down. hoisted back to bed, obs ok, neuro obs started. small bruise L elbow. dr on call informed 0355.`;
+const SAMPLE_NOTE = `visitor maria lopez slipped wet floor by ER entrance ~2pm today, no wet floor sign out. c/o R wrist pain, gave ice pack. lives 12 oak st springfield, ph 555-0142, showed drivers license. cleaner saw it happen.`;
 
 
 /* =====================================================================
@@ -192,7 +210,7 @@ function leafPaths(obj, prefix = "") {
 }
 function layoutFor(report) {
   const known = new Set(FORM.flatMap(s => s.fields.map(f => f.key)));
-  const extras = leafPaths(report).filter(p => !known.has(p) && !["status", "approved_by", "approved_at"].includes(p));
+  const extras = leafPaths(report).filter(p => !known.has(p) && !["status", "approved_by", "approved_at", "missing_info"].includes(p));
   if (!extras.length) return FORM;
   return FORM.concat([{ title: "Other details from Gemma", fields: extras.map(k => ({
     key: k, label: k.split(".").at(-1).replace(/_/g, " ").replace(/^./, c => c.toUpperCase()),
@@ -218,8 +236,8 @@ function fieldHtml(f, value) {
     const type = ["date", "time"].includes(f.type) && fits ? f.type : "text";
     input = `<input type="${type}" id="${id}" value="${esc(value ?? "")}">`;
   }
-  return `<div class="field ${f.wide ? "wide" : ""} ${missing ? "missing" : ""}" data-key="${esc(f.key)}" data-type="${f.type}">
-    <label for="${id}">${esc(f.label)}</label>${input}<span class="flag">Missing from the note: please check</span></div>`;
+  return `<div class="field ${f.wide ? "wide" : ""} ${missing ? "missing" : ""}" data-key="${esc(f.key)}" data-type="${f.type}" data-only-if="${esc(f.onlyIf || "")}">
+    <label for="${id}">${esc(f.label)}</label>${input}<span class="flag">Missing from the note: please check</span><span class="na-note">Not needed: the answer above is No</span></div>`;
 }
 
 function esc(s) {
@@ -235,12 +253,29 @@ function render(report, note) {
       <div class="fields">${sec.fields.map(f => fieldHtml(f, getPath(report, f.key))).join("")}</div></section>`).join("");
   $("form").querySelectorAll(".field").forEach(el => {
     const input = el.querySelector("input, select, textarea");
-    const update = () => { if (el.dataset.type === "checkbox") el.dataset.touched = "1"; refreshField(el); refreshCount(); };
+    const update = () => { if (el.dataset.type === "checkbox") el.dataset.touched = "1"; refreshAll(); };
     input.addEventListener(el.dataset.type === "checkbox" ? "change" : "input", update);
   });
+  // Gemma's own list of what the note didn't say
+  const flagged = Array.isArray(report.missing_info) ? report.missing_info : [];
+  $("gemmaMissing").textContent = "Gemma says the note didn't include: " + flagged.map(prettyKey).join(", ");
   $("approver").value = report.approved_by || "";
   $("jsonText").textContent = approved ? JSON.stringify(report, null, 2) : "Not approved yet.";
   setLocked(approved, report);
+  refreshAll();
+}
+
+const prettyKey = (k) => String(k).split(".").at(-1).replace(/_/g, " ");
+const fieldEl = (key) => $("form").querySelector(`.field[data-key="${CSS.escape(key)}"]`);
+
+/* A field with onlyIf is not needed when its yes/no question is answered No. */
+function notNeeded(el) {
+  const parent = el.dataset.onlyIf && fieldEl(el.dataset.onlyIf);
+  return Boolean(parent) && readField(parent) === false;
+}
+
+function refreshAll() {
+  $("form").querySelectorAll(".field").forEach(refreshField);
   refreshCount();
 }
 
@@ -255,8 +290,9 @@ function readField(el) {
 }
 
 function refreshField(el) {
-  const v = readField(el);
-  el.classList.toggle("missing", isMissing(v));
+  const v = readField(el), na = notNeeded(el);
+  el.classList.toggle("na", na);
+  el.classList.toggle("missing", !na && isMissing(v));
   if (el.dataset.type === "checkbox") $(safeId(el.dataset.key) + "_txt").textContent = v === true ? "Yes" : v === false ? "No" : "Not stated in note (tick for yes)";
 }
 
@@ -270,6 +306,8 @@ function refreshCount() {
 function currentReport() {
   const report = JSON.parse(JSON.stringify(original));
   $("form").querySelectorAll(".field").forEach(el => setPath(report, el.dataset.key, readField(el)));
+  // missing_info now lists what is still empty after the review, e.g. "witnesses.details"
+  report.missing_info = [...$("form").querySelectorAll(".field.missing")].map(el => el.dataset.key);
   return report;
 }
 
@@ -281,6 +319,8 @@ function setLocked(locked, report) {
   $("status").textContent = locked ? "Approved" : "Awaiting approval";
   $("status").className = "status" + (locked ? " approved" : "");
   $("banner").style.display = locked ? "block" : "none";
+  const flagged = original && Array.isArray(original.missing_info) && original.missing_info.length;
+  $("gemmaMissing").style.display = !locked && flagged ? "block" : "none";
   if (locked && report) $("banner").textContent = `Approved by ${report.approved_by} at ${new Date(report.approved_at).toLocaleString()}.`;
 }
 
