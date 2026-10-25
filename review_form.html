@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Incident Report Review</title>
+<!--
+  Person 2: Review UI.
+  Open this file in a browser (double-click it). No server or installs needed.
+
+  To change it:
+    1. FORM (below): the 4 sections of the official form, their labels, order, and field types
+    2. SAMPLE_REPORT: the fake JSON Gemma would produce (null = missing -> yellow)
+    3. SAMPLE_NOTE: the messy note that JSON came from
+  Save, then refresh the browser.
+-->
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #ffffff; --ink: #1d2025; --muted: #646a73; --line: #dcdfe4;
+    --accent: #1f5fbf; --accent-ink: #ffffff; --ok: #1d7a46; --ok-bg: #e3f4ea;
+    --miss: #fff4bf; --miss-line: #e0b400; --miss-ink: #7a5b00; --wait: #8a5a00; --wait-bg: #fff1d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15171a; --panel: #1e2125; --ink: #eceef1; --muted: #9aa1ab; --line: #31353b;
+      --accent: #6aa3f5; --accent-ink: #0d1520; --ok: #6fd39a; --ok-bg: #173123;
+      --miss: #3d3410; --miss-line: #c9a227; --miss-ink: #f1d675; --wait: #f0b85a; --wait-bg: #3a2c12;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14.5px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 40px; }
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  header h1 { font-size: 20px; margin: 0; }
+  .status { font-size: 12.5px; font-weight: 600; padding: 4px 10px; border-radius: 999px; background: var(--wait-bg); color: var(--wait); }
+  .status.approved { background: var(--ok-bg); color: var(--ok); }
+  .missing-count { font-size: 13px; color: var(--miss-ink); background: var(--miss); border: 1px solid var(--miss-line); padding: 3px 10px; border-radius: 999px; }
+  .missing-count.none { background: var(--ok-bg); color: var(--ok); border-color: var(--ok); }
+  .cols { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 16px; align-items: start; }
+  @media (max-width: 860px) { .cols { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .note { position: sticky; top: 12px; }
+  .note h2, .section h2 { font-size: 15px; margin: 0 0 10px; }
+  .note pre { white-space: pre-wrap; font: 13.5px/1.5 ui-monospace, Menlo, Consolas, monospace; margin: 0; background: var(--bg); border-radius: 8px; padding: 10px; }
+  .hint { color: var(--muted); font-size: 12.5px; margin: 8px 0 0; }
+  .section { margin-bottom: 14px; }
+  .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 14px; }
+  @media (max-width: 560px) { .fields { grid-template-columns: 1fr; } }
+  .field { display: flex; flex-direction: column; gap: 4px; padding: 6px; border-radius: 8px; border: 1px solid transparent; }
+  .field.wide { grid-column: 1 / -1; }
+  .field label { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+  .field input[type=text], .field input[type=date], .field input[type=time], .field select, .field textarea {
+    font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; width: 100%; }
+  .field textarea { resize: vertical; min-height: 70px; }
+  .field.missing { background: var(--miss); border-color: var(--miss-line); }
+  .field.missing input, .field.missing select, .field.missing textarea { border-color: var(--miss-line); }
+  .field .flag { display: none; font-size: 11.5px; color: var(--miss-ink); font-weight: 600; }
+  .field.missing .flag { display: block; }
+  .check { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--ink); font-weight: 500; cursor: pointer; }
+  .check input { width: 18px; height: 18px; accent-color: var(--accent); }
+  .bar { position: sticky; bottom: 0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; }
+  @media (max-width: 560px) { .bar { position: static; } }
+  .bar input { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; }
+  .btn { font: inherit; font-weight: 600; border: 0; border-radius: 9px; padding: 9px 16px; cursor: pointer; background: var(--accent); color: var(--accent-ink); }
+  .btn.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); font-weight: 500; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .spacer { flex: 1; }
+  .banner { display: none; margin-bottom: 14px; padding: 12px 14px; border-radius: 10px; background: var(--ok-bg); color: var(--ok); font-weight: 600; }
+  details { margin-top: 14px; } summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  details pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  details pre, details textarea { width: 100%; font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 10px; overflow: auto; }
+  .err { color: #c0392b; font-size: 13px; }
+  .field.na { opacity: .55; }
+  .field .na-note { display: none; font-size: 11.5px; color: var(--muted); }
+  .field.na .na-note { display: block; }
+  .gemma-missing { display: none; margin-bottom: 14px; padding: 10px 14px; border-radius: 10px; background: var(--miss); border: 1px solid var(--miss-line); color: var(--miss-ink); font-size: 13.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Incident report review</h1>
+    <span id="status" class="status">Awaiting approval</span>
+    <span id="missingCount" class="missing-count"></span>
+  </header>
+
+  <div id="banner" class="banner"></div>
+
+  <div class="cols">
+    <aside class="card note">
+      <h2>Original note</h2>
+      <pre id="noteText"></pre>
+      <p class="hint">Check Gemma's form against this note. Yellow fields were missing from the note: fill them in or leave them blank.</p>
+    </aside>
+
+    <main>
+      <div id="gemmaMissing" class="gemma-missing"></div>
+      <form id="form" autocomplete="off"></form>
+
+      <div class="bar">
+        <label for="approver">Approved by</label>
+        <input id="approver" placeholder="Your name">
+        <span class="spacer"></span>
+        <button type="button" class="btn ghost" id="resetBtn">Undo all edits</button>
+        <button type="button" class="btn" id="approveBtn">Approve report</button>
+      </div>
+
+      <details id="jsonOut">
+        <summary>Approved JSON (what gets saved)</summary>
+        <pre id="jsonText">Not approved yet.</pre>
+      </details>
+      <details>
+        <summary>Test with different JSON (paste Gemma's output here)</summary>
+        <textarea id="pasteBox" rows="8" placeholder='{"incident": {...}, ...}'></textarea>
+        <p><button type="button" class="btn ghost" id="loadBtn">Load this JSON into the form</button> <span id="pasteErr" class="err"></span></p>
+      </details>
+    </main>
+  </div>
+</div>
+
+<script>
+/* =====================================================================
+   1) FORM LAYOUT: mirror the 4 sections of the official form (the jpg).
+   key   = where the value lives in Gemma's JSON ("incident.date" means
+           report.incident.date)
+   type  = text | textarea | date | time | select | checkbox | list
+   wide  = true to make the field full width
+   onlyIf = only needed when that yes/no field is ticked (otherwise it's
+           greyed out and not counted as missing)
+   ===================================================================== */
+const FORM = [
+  { title: "Report", fields: [
+    { key: "date_of_report", label: "Date of report", type: "date" },
+  ]},
+  { title: "1. Person involved", fields: [
+    { key: "person_involved.full_name", label: "Full name", type: "text" },
+    { key: "person_involved.address", label: "Address", type: "text" },
+    { key: "person_involved.identification_type", label: "Identification type", type: "text" },
+    { key: "person_involved.identification_number", label: "Identification number", type: "text" },
+    { key: "person_involved.phone", label: "Phone", type: "text" },
+    { key: "person_involved.email", label: "Email", type: "text" },
+  ]},
+  { title: "2. Incident", fields: [
+    { key: "incident.date", label: "Date of incident", type: "date" },
+    { key: "incident.time", label: "Time of incident", type: "time" },
+    { key: "incident.location", label: "Location", type: "text", wide: true },
+    { key: "incident.description", label: "Description of incident", type: "textarea", wide: true },
+  ]},
+  { title: "3. Injuries", fields: [
+    { key: "injuries.anyone_injured", label: "Was anyone injured?", type: "checkbox", wide: true },
+    { key: "injuries.description", label: "Injury description", type: "textarea", wide: true, onlyIf: "injuries.anyone_injured" },
+  ]},
+  { title: "4. Witnesses", fields: [
+    { key: "witnesses.were_there_witnesses", label: "Were there witnesses?", type: "checkbox", wide: true },
+    { key: "witnesses.details", label: "Witness details", type: "textarea", wide: true, onlyIf: "witnesses.were_there_witnesses" },
+  ]},
+];
+
+/* =====================================================================
+   2) FAKE GEMMA OUTPUT, in the team's JSON format.
+      null = not in the note -> shown in yellow
+      missing_info = what Gemma flagged as missing (shown at the top)
+   ===================================================================== */
+const SAMPLE_REPORT = {
+  date_of_report: "2026-10-25",
+  person_involved: {
+    full_name: "Maria Lopez",
+    address: "12 Oak Street, Springfield",
+    identification_type: "Driver's license",
+    identification_number: null,
+    phone: "555-0142",
+    email: null,
+  },
+  incident: {
+    date: "2026-10-25",
+    time: "14:00",
+    location: "Corridor near the Emergency Department entrance",
+    description: "Visitor slipped on a wet floor near the ER entrance. No wet-floor sign was in place.",
+  },
+  injuries: { anyone_injured: true, description: "Pain in right wrist. Nurse applied an ice pack." },
+  witnesses: { were_there_witnesses: true, details: null },
+  missing_info: ["identification_number", "email", "witness details"],
+};
+
+/* 3) The messy note the JSON came from (shown on the left for checking). */
+const SAMPLE_NOTE = `visitor maria lopez slipped wet floor by ER entrance ~2pm today, no wet floor sign out. c/o R wrist pain, gave ice pack. lives 12 oak st springfield, ph 555-0142, showed drivers license. cleaner saw it happen.`;
+
+
+/* =====================================================================
+   Below here: how the form works. You shouldn't need to change it.
+   ===================================================================== */
+const $ = (id) => document.getElementById(id);
+let original = null;   // the report as Gemma gave it (for "Undo all edits")
+let approved = false;
+
+const getPath = (obj, path) => path.split(".").reduce((o, k) => (o == null ? undefined : o[k]), obj);
+function setPath(obj, path, value) {
+  const keys = path.split(".");
+  let o = obj;
+  keys.slice(0, -1).forEach(k => { if (o[k] == null || typeof o[k] !== "object") o[k] = {}; o = o[k]; });
+  o[keys.at(-1)] = value;
+}
+const isMissing = (v) => v === null || v === undefined || (typeof v === "string" && v.trim() === "") || (Array.isArray(v) && v.length === 0);
+const safeId = (key) => "f_" + key.replace(/[^a-zA-Z0-9]/g, "_");
+
+/* Any keys in the JSON that FORM doesn't list go in an extra section, so nothing Gemma found is lost. */
+function leafPaths(obj, prefix = "") {
+  if (obj === null || typeof obj !== "object" || Array.isArray(obj)) return prefix ? [prefix] : [];
+  return Object.keys(obj).flatMap(k => leafPaths(obj[k], prefix ? prefix + "." + k : k));
+}
+function layoutFor(report) {
+  const known = new Set(FORM.flatMap(s => s.fields.map(f => f.key)));
+  const extras = leafPaths(report).filter(p => !known.has(p) && !["status", "approved_by", "approved_at", "missing_info"].includes(p));
+  if (!extras.length) return FORM;
+  return FORM.concat([{ title: "Other details from Gemma", fields: extras.map(k => ({
+    key: k, label: k.split(".").at(-1).replace(/_/g, " ").replace(/^./, c => c.toUpperCase()),
+    type: typeof getPath(report, k) === "boolean" ? "checkbox" : Array.isArray(getPath(report, k)) ? "list" : "text" })) }]);
+}
+
+function fieldHtml(f, value) {
+  const id = safeId(f.key);
+  const missing = isMissing(value);
+  let input;
+  if (f.type === "checkbox") {
+    input = `<label class="check"><input type="checkbox" id="${id}" ${value === true ? "checked" : ""}>
+      <span id="${id}_txt">${value === true ? "Yes" : value === false ? "No" : "Not stated in note (tick for yes)"}</span></label>`;
+  } else if (f.type === "textarea" || f.type === "list") {
+    const text = f.type === "list" ? (Array.isArray(value) ? value.join("\n") : (value ?? "")) : (value ?? "");
+    input = `<textarea id="${id}" rows="${f.type === "list" ? 3 : 4}">${esc(text)}</textarea>`;
+  } else if (f.type === "select") {
+    const opts = f.options.includes(value) || isMissing(value) ? f.options : [value, ...f.options];
+    input = `<select id="${id}"><option value="">Choose…</option>${opts.map(o => `<option ${o === value ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`;
+  } else {
+    // Date/time pickers only accept 2026-10-25 / 03:40. If Gemma wrote it another way, show plain text so nothing is lost.
+    const fits = isMissing(value) || (f.type === "date" && /^\d{4}-\d{2}-\d{2}$/.test(value)) || (f.type === "time" && /^\d{2}:\d{2}(:\d{2})?$/.test(value));
+    const type = ["date", "time"].includes(f.type) && fits ? f.type : "text";
+    input = `<input type="${type}" id="${id}" value="${esc(value ?? "")}">`;
+  }
+  return `<div class="field ${f.wide ? "wide" : ""} ${missing ? "missing" : ""}" data-key="${esc(f.key)}" data-type="${f.type}" data-only-if="${esc(f.onlyIf || "")}">
+    <label for="${id}">${esc(f.label)}</label>${input}<span class="flag">Missing from the note: please check</span><span class="na-note">Not needed: the answer above is No</span></div>`;
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+/* Draw the whole form from a report object. */
+function render(report, note) {
+  original = JSON.parse(JSON.stringify(report));
+  approved = report.status === "approved";
+  $("noteText").textContent = note ?? "(no original note provided)";
+  $("form").innerHTML = layoutFor(report).map(sec => `<section class="card section"><h2>${esc(sec.title)}</h2>
+      <div class="fields">${sec.fields.map(f => fieldHtml(f, getPath(report, f.key))).join("")}</div></section>`).join("");
+  $("form").querySelectorAll(".field").forEach(el => {
+    const input = el.querySelector("input, select, textarea");
+    const update = () => { if (el.dataset.type === "checkbox") el.dataset.touched = "1"; refreshAll(); };
+    input.addEventListener(el.dataset.type === "checkbox" ? "change" : "input", update);
+  });
+  // Gemma's own list of what the note didn't say
+  const flagged = Array.isArray(report.missing_info) ? report.missing_info : [];
+  $("gemmaMissing").textContent = "Gemma says the note didn't include: " + flagged.map(prettyKey).join(", ");
+  $("approver").value = report.approved_by || "";
+  $("jsonText").textContent = approved ? JSON.stringify(report, null, 2) : "Not approved yet.";
+  setLocked(approved, report);
+  refreshAll();
+}
+
+const prettyKey = (k) => String(k).split(".").at(-1).replace(/_/g, " ");
+const fieldEl = (key) => $("form").querySelector(`.field[data-key="${CSS.escape(key)}"]`);
+
+/* A field with onlyIf is not needed when its yes/no question is answered No. */
+function notNeeded(el) {
+  const parent = el.dataset.onlyIf && fieldEl(el.dataset.onlyIf);
+  return Boolean(parent) && readField(parent) === false;
+}
+
+function refreshAll() {
+  $("form").querySelectorAll(".field").forEach(refreshField);
+  refreshCount();
+}
+
+/* Read one field's current value back out of the page. */
+function readField(el) {
+  const input = el.querySelector("input, select, textarea");
+  switch (el.dataset.type) {
+    case "checkbox": return el.dataset.touched || getPath(original, el.dataset.key) != null ? input.checked : null;
+    case "list": return input.value.split("\n").map(s => s.trim()).filter(Boolean);
+    default: return input.value.trim() === "" ? null : input.value.trim();
+  }
+}
+
+function refreshField(el) {
+  const v = readField(el), na = notNeeded(el);
+  el.classList.toggle("na", na);
+  el.classList.toggle("missing", !na && isMissing(v));
+  if (el.dataset.type === "checkbox") $(safeId(el.dataset.key) + "_txt").textContent = v === true ? "Yes" : v === false ? "No" : "Not stated in note (tick for yes)";
+}
+
+function refreshCount() {
+  const n = $("form").querySelectorAll(".field.missing").length;
+  $("missingCount").textContent = n ? `${n} field${n > 1 ? "s" : ""} missing` : "All fields filled";
+  $("missingCount").className = "missing-count" + (n ? "" : " none");
+}
+
+/* Build the edited report from the form. */
+function currentReport() {
+  const report = JSON.parse(JSON.stringify(original));
+  $("form").querySelectorAll(".field").forEach(el => setPath(report, el.dataset.key, readField(el)));
+  // missing_info now lists what is still empty after the review, e.g. "witnesses.details"
+  report.missing_info = [...$("form").querySelectorAll(".field.missing")].map(el => el.dataset.key);
+  return report;
+}
+
+function setLocked(locked, report) {
+  $("form").querySelectorAll("input, select, textarea").forEach(i => i.disabled = locked);
+  $("approver").disabled = locked;
+  $("approveBtn").textContent = locked ? "Edit again" : "Approve report";
+  $("resetBtn").hidden = locked;
+  $("status").textContent = locked ? "Approved" : "Awaiting approval";
+  $("status").className = "status" + (locked ? " approved" : "");
+  $("banner").style.display = locked ? "block" : "none";
+  const flagged = original && Array.isArray(original.missing_info) && original.missing_info.length;
+  $("gemmaMissing").style.display = !locked && flagged ? "block" : "none";
+  if (locked && report) $("banner").textContent = `Approved by ${report.approved_by} at ${new Date(report.approved_at).toLocaleString()}.`;
+}
+
+$("approveBtn").onclick = () => {
+  if (approved) {  // "Edit again"
+    approved = false; setLocked(false); $("jsonText").textContent = "Not approved yet."; return;
+  }
+  const name = $("approver").value.trim();
+  if (!name) { $("approver").focus(); $("approver").placeholder = "Type your name to approve"; return; }
+  const missing = $("form").querySelectorAll(".field.missing").length;
+  if (missing && !confirm(`${missing} field(s) are still empty. Approve anyway?`)) return;
+  const report = Object.assign(currentReport(), { status: "approved", approved_by: name, approved_at: new Date().toISOString() });
+  approved = true;
+  $("jsonText").textContent = JSON.stringify(report, null, 2);
+  $("jsonOut").open = true;
+  setLocked(true, report);
+  // Person 3 hooks in here: define window.onReportApproved = (report) => { ...save it... }
+  if (typeof window.onReportApproved === "function") window.onReportApproved(report);
+};
+
+$("resetBtn").onclick = () => { if (confirm("Undo all your edits and go back to Gemma's version?")) render(original, $("noteText").textContent); };
+
+$("loadBtn").onclick = () => {
+  $("pasteErr").textContent = "";
+  try {
+    const obj = JSON.parse($("pasteBox").value);
+    render(obj.report ?? obj, obj.note ?? obj.original_note ?? $("noteText").textContent);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  } catch (e) { $("pasteErr").textContent = "That isn't valid JSON: " + e.message; }
+};
+
+// For teammates: ReviewForm.load(reportJson, noteText) shows any report; ReviewForm.getReport() reads the edits.
+window.ReviewForm = { load: render, getReport: currentReport };
+
+render(SAMPLE_REPORT, SAMPLE_NOTE);
+</script>
+</body>
+</html>
