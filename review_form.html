@@ -8,39 +8,59 @@
   Person 2: Review UI.
   Open this file in a browser (double-click it). No server or installs needed.
 
+  Left:  "Awaiting approval" list (click a report to review it)
+  Right: the review form for the selected report
+
   To change it:
     1. FORM (below): the 4 sections of the official form, their labels, order, and field types
-    2. SAMPLE_REPORT: the fake JSON Gemma would produce (null = missing -> yellow)
-    3. SAMPLE_NOTE: the messy note that JSON came from
-  Save, then refresh the browser.
+    2. SAMPLE_QUEUE: fake reports in the team's JSON format (null = missing -> yellow)
+  Save, then refresh the browser. Click "Reset sample reports" to reload SAMPLE_QUEUE.
+
+  For teammates:
+    ReviewForm.addPending(reportJson, originalNote)  -> adds a Gemma report to the list
+    window.onReportApproved = (report) => { ... }    -> called with the final JSON on Approve
 -->
 <style>
   :root {
     --bg: #f4f5f7; --panel: #ffffff; --ink: #1d2025; --muted: #646a73; --line: #dcdfe4;
-    --accent: #1f5fbf; --accent-ink: #ffffff; --ok: #1d7a46; --ok-bg: #e3f4ea;
+    --accent: #1f5fbf; --accent-ink: #ffffff; --accent-soft: #e8f0fc; --ok: #1d7a46; --ok-bg: #e3f4ea;
     --miss: #fff4bf; --miss-line: #e0b400; --miss-ink: #7a5b00; --wait: #8a5a00; --wait-bg: #fff1d6;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #15171a; --panel: #1e2125; --ink: #eceef1; --muted: #9aa1ab; --line: #31353b;
-      --accent: #6aa3f5; --accent-ink: #0d1520; --ok: #6fd39a; --ok-bg: #173123;
+      --accent: #6aa3f5; --accent-ink: #0d1520; --accent-soft: #1b2738; --ok: #6fd39a; --ok-bg: #173123;
       --miss: #3d3410; --miss-line: #c9a227; --miss-ink: #f1d675; --wait: #f0b85a; --wait-bg: #3a2c12;
     }
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 14.5px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  .wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 40px; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 20px 16px 40px; }
   header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
   header h1 { font-size: 20px; margin: 0; }
   .status { font-size: 12.5px; font-weight: 600; padding: 4px 10px; border-radius: 999px; background: var(--wait-bg); color: var(--wait); }
-  .status.approved { background: var(--ok-bg); color: var(--ok); }
   .missing-count { font-size: 13px; color: var(--miss-ink); background: var(--miss); border: 1px solid var(--miss-line); padding: 3px 10px; border-radius: 999px; }
   .missing-count.none { background: var(--ok-bg); color: var(--ok); border-color: var(--ok); }
   .cols { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 16px; align-items: start; }
   @media (max-width: 860px) { .cols { grid-template-columns: 1fr; } }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
-  .note { position: sticky; top: 12px; }
-  .note h2, .section h2 { font-size: 15px; margin: 0 0 10px; }
+  .side { display: flex; flex-direction: column; gap: 14px; position: sticky; top: 12px; }
+  @media (max-width: 860px) { .side { position: static; } }
+  .card h2 { font-size: 15px; margin: 0 0 10px; }
+  .queue-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .queue-count { font-size: 12.5px; color: var(--muted); }
+  .queue { display: flex; flex-direction: column; gap: 6px; max-height: 46vh; overflow: auto; }
+  .item { text-align: left; font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; cursor: pointer; }
+  .item:hover { border-color: var(--accent); }
+  .item.on { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+  .item b { display: block; font-size: 14px; }
+  .item .sub { display: block; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .item .meta { display: flex; gap: 6px; align-items: center; margin-top: 4px; font-size: 12px; color: var(--muted); }
+  .chip { font-size: 11.5px; padding: 1px 7px; border-radius: 999px; background: var(--miss); color: var(--miss-ink); border: 1px solid var(--miss-line); }
+  .chip.ok { background: var(--ok-bg); color: var(--ok); border-color: var(--ok); }
+  .chip.edit { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+  .empty { color: var(--muted); font-size: 13.5px; padding: 8px 2px; }
+  .linkbtn { font: inherit; font-size: 12.5px; color: var(--muted); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; margin-top: 10px; }
   .note pre { white-space: pre-wrap; font: 13.5px/1.5 ui-monospace, Menlo, Consolas, monospace; margin: 0; background: var(--bg); border-radius: 8px; padding: 10px; }
   .hint { color: var(--muted); font-size: 12.5px; margin: 8px 0 0; }
   .section { margin-bottom: 14px; }
@@ -56,6 +76,9 @@
   .field.missing input, .field.missing select, .field.missing textarea { border-color: var(--miss-line); }
   .field .flag { display: none; font-size: 11.5px; color: var(--miss-ink); font-weight: 600; }
   .field.missing .flag { display: block; }
+  .field.na { opacity: .55; }
+  .field .na-note { display: none; font-size: 11.5px; color: var(--muted); }
+  .field.na .na-note { display: block; }
   .check { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--ink); font-weight: 500; cursor: pointer; }
   .check input { width: 18px; height: 18px; accent-color: var(--accent); }
   .bar { position: sticky; bottom: 0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; }
@@ -63,17 +86,15 @@
   .bar input { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; }
   .btn { font: inherit; font-weight: 600; border: 0; border-radius: 9px; padding: 9px 16px; cursor: pointer; background: var(--accent); color: var(--accent-ink); }
   .btn.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); font-weight: 500; }
-  .btn:disabled { opacity: .5; cursor: default; }
   .spacer { flex: 1; }
   .banner { display: none; margin-bottom: 14px; padding: 12px 14px; border-radius: 10px; background: var(--ok-bg); color: var(--ok); font-weight: 600; }
+  .gemma-missing { display: none; margin-bottom: 14px; padding: 10px 14px; border-radius: 10px; background: var(--miss); border: 1px solid var(--miss-line); color: var(--miss-ink); font-size: 13.5px; }
+  .done { text-align: center; padding: 48px 16px; }
+  .done h2 { font-size: 18px; margin: 0 0 6px; }
   details { margin-top: 14px; } summary { cursor: pointer; color: var(--muted); font-size: 13px; }
   details pre { white-space: pre-wrap; overflow-wrap: anywhere; }
   details pre, details textarea { width: 100%; font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 10px; overflow: auto; }
   .err { color: #c0392b; font-size: 13px; }
-  .field.na { opacity: .55; }
-  .field .na-note { display: none; font-size: 11.5px; color: var(--muted); }
-  .field.na .na-note { display: block; }
-  .gemma-missing { display: none; margin-bottom: 14px; padding: 10px 14px; border-radius: 10px; background: var(--miss); border: 1px solid var(--miss-line); color: var(--miss-ink); font-size: 13.5px; }
 </style>
 </head>
 <body>
@@ -87,32 +108,44 @@
   <div id="banner" class="banner"></div>
 
   <div class="cols">
-    <aside class="card note">
-      <h2>Original note</h2>
-      <pre id="noteText"></pre>
-      <p class="hint">Check Gemma's form against this note. Yellow fields were missing from the note: fill them in or leave them blank.</p>
+    <aside class="side">
+      <div class="card">
+        <div class="queue-head"><h2>Awaiting approval</h2><span id="queueCount" class="queue-count"></span></div>
+        <div id="queue" class="queue"></div>
+        <button type="button" class="linkbtn" id="resetQueueBtn">Reset sample reports</button>
+      </div>
+      <div class="card note" id="noteCard">
+        <h2>Original note</h2>
+        <pre id="noteText"></pre>
+        <p class="hint">Check Gemma's form against this note. Yellow fields were missing from the note: fill them in or leave them blank.</p>
+      </div>
     </aside>
 
     <main>
-      <div id="gemmaMissing" class="gemma-missing"></div>
-      <form id="form" autocomplete="off"></form>
-
-      <div class="bar">
-        <label for="approver">Approved by</label>
-        <input id="approver" placeholder="Your name">
-        <span class="spacer"></span>
-        <button type="button" class="btn ghost" id="resetBtn">Undo all edits</button>
-        <button type="button" class="btn" id="approveBtn">Approve report</button>
+      <div id="reviewArea">
+        <div id="gemmaMissing" class="gemma-missing"></div>
+        <form id="form" autocomplete="off"></form>
+        <div class="bar">
+          <label for="approver">Approved by</label>
+          <input id="approver" placeholder="Your name">
+          <span class="spacer"></span>
+          <button type="button" class="btn ghost" id="resetBtn">Undo all edits</button>
+          <button type="button" class="btn" id="approveBtn">Approve report</button>
+        </div>
+      </div>
+      <div id="doneArea" class="card done" hidden>
+        <h2>All caught up</h2>
+        <p class="hint">No reports are waiting for approval. Approved reports are in the filed reports list.</p>
       </div>
 
       <details id="jsonOut">
-        <summary>Approved JSON (what gets saved)</summary>
-        <pre id="jsonText">Not approved yet.</pre>
+        <summary>Last approved JSON (what gets saved)</summary>
+        <pre id="jsonText">Nothing approved yet.</pre>
       </details>
       <details>
-        <summary>Test with different JSON (paste Gemma's output here)</summary>
-        <textarea id="pasteBox" rows="8" placeholder='{"incident": {...}, ...}'></textarea>
-        <p><button type="button" class="btn ghost" id="loadBtn">Load this JSON into the form</button> <span id="pasteErr" class="err"></span></p>
+        <summary>Add a report to the list (paste Gemma's JSON here)</summary>
+        <textarea id="pasteBox" rows="8" placeholder='{"date_of_report": null, "person_involved": {...}, ...}   or   {"note": "...", "report": {...}}'></textarea>
+        <p><button type="button" class="btn ghost" id="loadBtn">Add to Awaiting approval</button> <span id="pasteErr" class="err"></span></p>
       </details>
     </main>
   </div>
@@ -120,13 +153,12 @@
 
 <script>
 /* =====================================================================
-   1) FORM LAYOUT: mirror the 4 sections of the official form (the jpg).
-   key   = where the value lives in Gemma's JSON ("incident.date" means
-           report.incident.date)
-   type  = text | textarea | date | time | select | checkbox | list
-   wide  = true to make the field full width
+   1) FORM LAYOUT: mirrors the 4 sections of the official form.
+   key    = where the value lives in the JSON ("incident.date" means report.incident.date)
+   type   = text | textarea | date | time | select | checkbox | list
+   wide   = true to make the field full width
    onlyIf = only needed when that yes/no field is ticked (otherwise it's
-           greyed out and not counted as missing)
+            greyed out and not counted as missing)
    ===================================================================== */
 const FORM = [
   { title: "Report", fields: [
@@ -157,42 +189,90 @@ const FORM = [
 ];
 
 /* =====================================================================
-   2) FAKE GEMMA OUTPUT, in the team's JSON format.
-      null = not in the note -> shown in yellow
-      missing_info = what Gemma flagged as missing (shown at the top)
+   2) SAMPLE REPORTS waiting for approval: fictional notes + the JSON
+      Gemma would make from them, in the team's format.
    ===================================================================== */
-const SAMPLE_REPORT = {
-  date_of_report: "2026-10-25",
-  person_involved: {
-    full_name: "Maria Lopez",
-    address: "12 Oak Street, Springfield",
-    identification_type: "Driver's license",
-    identification_number: null,
-    phone: "555-0142",
-    email: null,
+const SAMPLE_QUEUE = [
+  {
+    note: "visitor maria lopez slipped wet floor by ER entrance ~2pm today, no wet floor sign out. c/o R wrist pain, gave ice pack. lives 12 oak st springfield, ph 555-0142, showed drivers license. cleaner saw it happen.",
+    report: {
+      date_of_report: "2026-10-25",
+      person_involved: { full_name: "Maria Lopez", address: "12 Oak Street, Springfield", identification_type: "Driver's license",
+        identification_number: null, phone: "555-0142", email: null },
+      incident: { date: "2026-10-25", time: "14:00", location: "Corridor near the Emergency Department entrance",
+        description: "Visitor slipped on a wet floor near the ER entrance. No wet-floor sign was in place." },
+      injuries: { anyone_injured: true, description: "Pain in right wrist. Nurse applied an ice pack." },
+      witnesses: { were_there_witnesses: true, details: null },
+      missing_info: ["identification_number", "email", "witness details"],
+    },
   },
-  incident: {
-    date: "2026-10-25",
-    time: "14:00",
-    location: "Corridor near the Emergency Department entrance",
-    description: "Visitor slipped on a wet floor near the ER entrance. No wet-floor sign was in place.",
+  {
+    note: "SN priya shah needlestick injury L index finger while recapping needle after blood draw, room 3 ED, 25/10 11:20. washed + reported to occ health. no witnesses. staff id 44817, ph 555-0199",
+    report: {
+      date_of_report: "2026-10-25",
+      person_involved: { full_name: "Priya Shah", address: null, identification_type: "Staff ID",
+        identification_number: "44817", phone: "555-0199", email: null },
+      incident: { date: "2026-10-25", time: "11:20", location: "Emergency Department, room 3",
+        description: "Staff nurse had a needlestick injury while recapping a needle after a blood draw. The wound was washed and reported to occupational health." },
+      injuries: { anyone_injured: true, description: "Needlestick puncture to the left index finger." },
+      witnesses: { were_there_witnesses: false, details: null },
+      missing_info: ["address", "email"],
+    },
   },
-  injuries: { anyone_injured: true, description: "Pain in right wrist. Nurse applied an ice pack." },
-  witnesses: { were_there_witnesses: true, details: null },
-  missing_info: ["identification_number", "email", "witness details"],
-};
-
-/* 3) The messy note the JSON came from (shown on the left for checking). */
-const SAMPLE_NOTE = `visitor maria lopez slipped wet floor by ER entrance ~2pm today, no wet floor sign out. c/o R wrist pain, gave ice pack. lives 12 oak st springfield, ph 555-0142, showed drivers license. cleaner saw it happen.`;
+  {
+    note: "approx 1930 visitor shouting at front desk staff in OPD waiting area, threatened receptionist, security called, escorted out. name given as john reed. no one hurt. security guard + 2 patients saw. reported by receptionist anna",
+    report: {
+      date_of_report: "2026-10-24",
+      person_involved: { full_name: "John Reed", address: null, identification_type: null,
+        identification_number: null, phone: null, email: null },
+      incident: { date: null, time: "19:30", location: "Outpatient department waiting area, front desk",
+        description: "Visitor shouted at and threatened front desk staff. Security was called and escorted the visitor out." },
+      injuries: { anyone_injured: false, description: null },
+      witnesses: { were_there_witnesses: true, details: "Security guard and two patients in the waiting area." },
+      missing_info: ["incident date", "address", "identification_type", "identification_number", "phone", "email"],
+    },
+  },
+  {
+    note: "pt daniel okafor bed 14 given 1g paracetamol at 0800 instead of 500mg, noticed at 1000 by pharmacist on round. pt fine, no reaction, obs normal. dr informed. 24/10",
+    report: {
+      date_of_report: "2026-10-24",
+      person_involved: { full_name: "Daniel Okafor", address: null, identification_type: null,
+        identification_number: null, phone: null, email: null },
+      incident: { date: "2026-10-24", time: "08:00", location: "Ward, bed 14",
+        description: "Patient was given 1 g of paracetamol instead of the prescribed 500 mg. The pharmacist noticed the error at 10:00 on the ward round, and the doctor was informed." },
+      injuries: { anyone_injured: false, description: null },
+      witnesses: { were_there_witnesses: null, details: null },
+      missing_info: ["address", "identification_type", "identification_number", "phone", "email", "witnesses"],
+    },
+  },
+  {
+    note: "elderly pt found on bathroom floor, conscious, helped up. ? hit head",
+    report: {
+      date_of_report: null,
+      person_involved: { full_name: null, address: null, identification_type: null,
+        identification_number: null, phone: null, email: null },
+      incident: { date: null, time: null, location: "Bathroom",
+        description: "Elderly patient found on the bathroom floor, conscious, and helped up. Possibly hit their head." },
+      injuries: { anyone_injured: null, description: "Possible head injury (not confirmed)." },
+      witnesses: { were_there_witnesses: null, details: null },
+      missing_info: ["date_of_report", "full_name", "address", "identification_type", "identification_number", "phone",
+        "email", "incident date", "incident time", "whether anyone was injured", "witnesses"],
+    },
+  },
+];
 
 
 /* =====================================================================
-   Below here: how the form works. You shouldn't need to change it.
+   Below here: how the page works. You shouldn't need to change it.
    ===================================================================== */
 const $ = (id) => document.getElementById(id);
-let original = null;   // the report as Gemma gave it (for "Undo all edits")
-let approved = false;
+const STORE_KEY = "incident_review_queue_v1";
+let queue = [];        // [{ id, note, report (Gemma's version), draft (edits so far, or null) }]
+let currentId = null;
+let original = null;   // Gemma's version of the open report (for "Undo all edits")
+let shown = null;      // what the form was drawn from (Gemma's version or the saved draft)
 
+const clone = (x) => JSON.parse(JSON.stringify(x));
 const getPath = (obj, path) => path.split(".").reduce((o, k) => (o == null ? undefined : o[k]), obj);
 function setPath(obj, path, value) {
   const keys = path.split(".");
@@ -202,6 +282,95 @@ function setPath(obj, path, value) {
 }
 const isMissing = (v) => v === null || v === undefined || (typeof v === "string" && v.trim() === "") || (Array.isArray(v) && v.length === 0);
 const safeId = (key) => "f_" + key.replace(/[^a-zA-Z0-9]/g, "_");
+const prettyKey = (k) => String(k).split(".").at(-1).replace(/_/g, " ");
+const newId = () => "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+/* ---------- saving the list in this browser ---------- */
+function saveQueue() { try { localStorage.setItem(STORE_KEY, JSON.stringify(queue)); } catch (e) { /* private window: just don't save */ } }
+function loadQueue() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORE_KEY));
+    if (Array.isArray(saved)) return saved;
+  } catch (e) { /* nothing saved yet */ }
+  return sampleQueue();
+}
+const sampleQueue = () => SAMPLE_QUEUE.map(s => ({ id: newId(), note: s.note, report: clone(s.report), draft: null }));
+
+/* ---------- the "Awaiting approval" list ---------- */
+function countMissing(rep) {
+  let n = 0;
+  FORM.forEach(sec => sec.fields.forEach(f => {
+    const parentNo = f.onlyIf && getPath(rep, f.onlyIf) === false;
+    if (!parentNo && isMissing(getPath(rep, f.key))) n++;
+  }));
+  return n;
+}
+
+function drawQueue() {
+  $("queueCount").textContent = queue.length ? `${queue.length} waiting` : "";
+  if (!queue.length) { $("queue").innerHTML = '<div class="empty">Nothing waiting. New reports from Gemma appear here.</div>'; return; }
+  $("queue").innerHTML = queue.map(item => {
+    const rep = item.draft || item.report;
+    const name = getPath(rep, "person_involved.full_name") || "Unknown person";
+    const where = getPath(rep, "incident.location") || getPath(rep, "incident.description") || "No details";
+    const when = [getPath(rep, "incident.date"), getPath(rep, "incident.time")].filter(Boolean).join(" ") || "No date";
+    const n = countMissing(rep);
+    return `<button type="button" class="item ${item.id === currentId ? "on" : ""}" data-id="${item.id}">
+      <b>${esc(name)}</b><span class="sub">${esc(where)}</span>
+      <span class="meta">${esc(when)}
+        <span class="chip ${n ? "" : "ok"}">${n ? n + " missing" : "complete"}</span>
+        ${item.draft ? '<span class="chip edit">edited</span>' : ""}</span></button>`;
+  }).join("");
+  $("queue").querySelectorAll(".item").forEach(b => b.onclick = () => openItem(b.dataset.id));
+}
+
+function openItem(id) {
+  const item = queue.find(q => q.id === id);
+  if (!item) return;
+  currentId = id;
+  $("doneArea").hidden = true;
+  $("reviewArea").hidden = false;
+  $("noteCard").hidden = false;
+  render(item.report, item.draft, item.note);
+  drawQueue();
+}
+
+function showDone() {
+  currentId = null;
+  $("reviewArea").hidden = true;
+  $("noteCard").hidden = true;
+  $("doneArea").hidden = false;
+  $("missingCount").textContent = "";
+  $("missingCount").className = "";
+  $("status").textContent = "Nothing waiting";
+  drawQueue();
+}
+
+/* ---------- the review form ---------- */
+function fieldHtml(f, value) {
+  const id = safeId(f.key);
+  let input;
+  if (f.type === "checkbox") {
+    input = `<label class="check"><input type="checkbox" id="${id}" ${value === true ? "checked" : ""}>
+      <span id="${id}_txt"></span></label>`;
+  } else if (f.type === "textarea" || f.type === "list") {
+    const text = f.type === "list" ? (Array.isArray(value) ? value.join("\n") : (value ?? "")) : (value ?? "");
+    input = `<textarea id="${id}" rows="${f.type === "list" ? 3 : 4}">${esc(text)}</textarea>`;
+  } else if (f.type === "select") {
+    const opts = f.options.includes(value) || isMissing(value) ? f.options : [value, ...f.options];
+    input = `<select id="${id}"><option value="">Choose…</option>${opts.map(o => `<option ${o === value ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`;
+  } else {
+    // Date/time pickers only accept 2026-10-25 / 14:00. If Gemma wrote it another way, show plain text so nothing is lost.
+    const fits = isMissing(value) || (f.type === "date" && /^\d{4}-\d{2}-\d{2}$/.test(value)) || (f.type === "time" && /^\d{2}:\d{2}(:\d{2})?$/.test(value));
+    const type = ["date", "time"].includes(f.type) && fits ? f.type : "text";
+    input = `<input type="${type}" id="${id}" value="${esc(value ?? "")}">`;
+  }
+  return `<div class="field ${f.wide ? "wide" : ""}" data-key="${esc(f.key)}" data-type="${f.type}" data-only-if="${esc(f.onlyIf || "")}">
+    <label for="${id}">${esc(f.label)}</label>${input}<span class="flag">Missing from the note: please check</span><span class="na-note">Not needed: the answer above is No</span></div>`;
+}
 
 /* Any keys in the JSON that FORM doesn't list go in an extra section, so nothing Gemma found is lost. */
 function leafPaths(obj, prefix = "") {
@@ -217,56 +386,39 @@ function layoutFor(report) {
     type: typeof getPath(report, k) === "boolean" ? "checkbox" : Array.isArray(getPath(report, k)) ? "list" : "text" })) }]);
 }
 
-function fieldHtml(f, value) {
-  const id = safeId(f.key);
-  const missing = isMissing(value);
-  let input;
-  if (f.type === "checkbox") {
-    input = `<label class="check"><input type="checkbox" id="${id}" ${value === true ? "checked" : ""}>
-      <span id="${id}_txt">${value === true ? "Yes" : value === false ? "No" : "Not stated in note (tick for yes)"}</span></label>`;
-  } else if (f.type === "textarea" || f.type === "list") {
-    const text = f.type === "list" ? (Array.isArray(value) ? value.join("\n") : (value ?? "")) : (value ?? "");
-    input = `<textarea id="${id}" rows="${f.type === "list" ? 3 : 4}">${esc(text)}</textarea>`;
-  } else if (f.type === "select") {
-    const opts = f.options.includes(value) || isMissing(value) ? f.options : [value, ...f.options];
-    input = `<select id="${id}"><option value="">Choose…</option>${opts.map(o => `<option ${o === value ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`;
-  } else {
-    // Date/time pickers only accept 2026-10-25 / 03:40. If Gemma wrote it another way, show plain text so nothing is lost.
-    const fits = isMissing(value) || (f.type === "date" && /^\d{4}-\d{2}-\d{2}$/.test(value)) || (f.type === "time" && /^\d{2}:\d{2}(:\d{2})?$/.test(value));
-    const type = ["date", "time"].includes(f.type) && fits ? f.type : "text";
-    input = `<input type="${type}" id="${id}" value="${esc(value ?? "")}">`;
-  }
-  return `<div class="field ${f.wide ? "wide" : ""} ${missing ? "missing" : ""}" data-key="${esc(f.key)}" data-type="${f.type}" data-only-if="${esc(f.onlyIf || "")}">
-    <label for="${id}">${esc(f.label)}</label>${input}<span class="flag">Missing from the note: please check</span><span class="na-note">Not needed: the answer above is No</span></div>`;
-}
-
-function esc(s) {
-  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
-
-/* Draw the whole form from a report object. */
-function render(report, note) {
-  original = JSON.parse(JSON.stringify(report));
-  approved = report.status === "approved";
-  $("noteText").textContent = note ?? "(no original note provided)";
-  $("form").innerHTML = layoutFor(report).map(sec => `<section class="card section"><h2>${esc(sec.title)}</h2>
-      <div class="fields">${sec.fields.map(f => fieldHtml(f, getPath(report, f.key))).join("")}</div></section>`).join("");
+/* Draw the form for one report: Gemma's version, plus any saved edits. */
+function render(report, draft, note) {
+  original = clone(report);
+  shown = clone(draft || report);
+  $("noteText").textContent = note || "(no original note provided)";
+  $("form").innerHTML = layoutFor(shown).map(sec => `<section class="card section"><h2>${esc(sec.title)}</h2>
+      <div class="fields">${sec.fields.map(f => fieldHtml(f, getPath(shown, f.key))).join("")}</div></section>`).join("");
   $("form").querySelectorAll(".field").forEach(el => {
     const input = el.querySelector("input, select, textarea");
-    const update = () => { if (el.dataset.type === "checkbox") el.dataset.touched = "1"; refreshAll(); };
-    input.addEventListener(el.dataset.type === "checkbox" ? "change" : "input", update);
+    input.addEventListener(el.dataset.type === "checkbox" ? "change" : "input", () => {
+      if (el.dataset.type === "checkbox") el.dataset.touched = "1";
+      refreshAll();
+      saveDraft();
+    });
   });
-  // Gemma's own list of what the note didn't say
-  const flagged = Array.isArray(report.missing_info) ? report.missing_info : [];
+  const flagged = Array.isArray(original.missing_info) ? original.missing_info : [];
+  $("gemmaMissing").style.display = flagged.length ? "block" : "none";
   $("gemmaMissing").textContent = "Gemma says the note didn't include: " + flagged.map(prettyKey).join(", ");
-  $("approver").value = report.approved_by || "";
-  $("jsonText").textContent = approved ? JSON.stringify(report, null, 2) : "Not approved yet.";
-  setLocked(approved, report);
+  $("status").textContent = "Awaiting approval";
   refreshAll();
 }
 
-const prettyKey = (k) => String(k).split(".").at(-1).replace(/_/g, " ");
 const fieldEl = (key) => $("form").querySelector(`.field[data-key="${CSS.escape(key)}"]`);
+
+/* Read one field's current value back out of the page. */
+function readField(el) {
+  const input = el.querySelector("input, select, textarea");
+  switch (el.dataset.type) {
+    case "checkbox": return el.dataset.touched || getPath(shown, el.dataset.key) != null ? input.checked : null;
+    case "list": return input.value.split("\n").map(s => s.trim()).filter(Boolean);
+    default: return input.value.trim() === "" ? null : input.value.trim();
+  }
+}
 
 /* A field with onlyIf is not needed when its yes/no question is answered No. */
 function notNeeded(el) {
@@ -275,28 +427,12 @@ function notNeeded(el) {
 }
 
 function refreshAll() {
-  $("form").querySelectorAll(".field").forEach(refreshField);
-  refreshCount();
-}
-
-/* Read one field's current value back out of the page. */
-function readField(el) {
-  const input = el.querySelector("input, select, textarea");
-  switch (el.dataset.type) {
-    case "checkbox": return el.dataset.touched || getPath(original, el.dataset.key) != null ? input.checked : null;
-    case "list": return input.value.split("\n").map(s => s.trim()).filter(Boolean);
-    default: return input.value.trim() === "" ? null : input.value.trim();
-  }
-}
-
-function refreshField(el) {
-  const v = readField(el), na = notNeeded(el);
-  el.classList.toggle("na", na);
-  el.classList.toggle("missing", !na && isMissing(v));
-  if (el.dataset.type === "checkbox") $(safeId(el.dataset.key) + "_txt").textContent = v === true ? "Yes" : v === false ? "No" : "Not stated in note (tick for yes)";
-}
-
-function refreshCount() {
+  $("form").querySelectorAll(".field").forEach(el => {
+    const v = readField(el), na = notNeeded(el);
+    el.classList.toggle("na", na);
+    el.classList.toggle("missing", !na && isMissing(v));
+    if (el.dataset.type === "checkbox") $(safeId(el.dataset.key) + "_txt").textContent = v === true ? "Yes" : v === false ? "No" : "Not stated in note (tick for yes)";
+  });
   const n = $("form").querySelectorAll(".field.missing").length;
   $("missingCount").textContent = n ? `${n} field${n > 1 ? "s" : ""} missing` : "All fields filled";
   $("missingCount").className = "missing-count" + (n ? "" : " none");
@@ -304,58 +440,99 @@ function refreshCount() {
 
 /* Build the edited report from the form. */
 function currentReport() {
-  const report = JSON.parse(JSON.stringify(original));
+  const report = clone(original);
   $("form").querySelectorAll(".field").forEach(el => setPath(report, el.dataset.key, readField(el)));
   // missing_info now lists what is still empty after the review, e.g. "witnesses.details"
   report.missing_info = [...$("form").querySelectorAll(".field.missing")].map(el => el.dataset.key);
   return report;
 }
 
-function setLocked(locked, report) {
-  $("form").querySelectorAll("input, select, textarea").forEach(i => i.disabled = locked);
-  $("approver").disabled = locked;
-  $("approveBtn").textContent = locked ? "Edit again" : "Approve report";
-  $("resetBtn").hidden = locked;
-  $("status").textContent = locked ? "Approved" : "Awaiting approval";
-  $("status").className = "status" + (locked ? " approved" : "");
-  $("banner").style.display = locked ? "block" : "none";
-  const flagged = original && Array.isArray(original.missing_info) && original.missing_info.length;
-  $("gemmaMissing").style.display = !locked && flagged ? "block" : "none";
-  if (locked && report) $("banner").textContent = `Approved by ${report.approved_by} at ${new Date(report.approved_at).toLocaleString()}.`;
+/* Keep edits when switching between reports (and after a refresh). */
+function saveDraft() {
+  const item = queue.find(q => q.id === currentId);
+  if (!item) return;
+  item.draft = currentReport();
+  item.draft.missing_info = original.missing_info ?? [];
+  saveQueue();
+  drawQueue();
 }
 
+/* ---------- buttons ---------- */
 $("approveBtn").onclick = () => {
-  if (approved) {  // "Edit again"
-    approved = false; setLocked(false); $("jsonText").textContent = "Not approved yet."; return;
-  }
   const name = $("approver").value.trim();
   if (!name) { $("approver").focus(); $("approver").placeholder = "Type your name to approve"; return; }
   const missing = $("form").querySelectorAll(".field.missing").length;
   if (missing && !confirm(`${missing} field(s) are still empty. Approve anyway?`)) return;
   const report = Object.assign(currentReport(), { status: "approved", approved_by: name, approved_at: new Date().toISOString() });
-  approved = true;
+  const item = queue.find(q => q.id === currentId);
+  const index = queue.indexOf(item);
+  queue = queue.filter(q => q !== item);
+  saveQueue();
+
+  // Hand the approved report to Person 3's filed reports list.
+  let sent = false;
+  if (typeof window.onReportApproved === "function") {
+    try { window.onReportApproved(report, item ? item.note : ""); sent = true; } catch (e) { console.error(e); }
+  }
   $("jsonText").textContent = JSON.stringify(report, null, 2);
-  $("jsonOut").open = true;
-  setLocked(true, report);
-  // Person 3 hooks in here: define window.onReportApproved = (report) => { ...save it... }
-  if (typeof window.onReportApproved === "function") window.onReportApproved(report);
+  const who = getPath(report, "person_involved.full_name") || "Unknown person";
+  $("banner").textContent = `Approved: ${who}, by ${name}. ` + (sent ? "Sent to filed reports." : "Filed reports list isn't connected on this page yet; the JSON is below.");
+  $("banner").style.display = "block";
+  clearTimeout(window._bannerTimer);
+  window._bannerTimer = setTimeout(() => { $("banner").style.display = "none"; }, 6000);
+
+  const next = queue[Math.min(index, queue.length - 1)];
+  if (next) openItem(next.id); else showDone();
+  window.scrollTo({ top: 0, behavior: "smooth" });
 };
 
-$("resetBtn").onclick = () => { if (confirm("Undo all your edits and go back to Gemma's version?")) render(original, $("noteText").textContent); };
+$("resetBtn").onclick = () => {
+  if (!confirm("Undo all your edits to this report and go back to Gemma's version?")) return;
+  const item = queue.find(q => q.id === currentId);
+  if (!item) return;
+  item.draft = null;
+  saveQueue();
+  openItem(item.id);
+};
+
+$("resetQueueBtn").onclick = () => {
+  if (!confirm("Replace the list with the 5 sample reports? Edits to reports in the list will be lost.")) return;
+  queue = sampleQueue();
+  saveQueue();
+  openItem(queue[0].id);
+};
 
 $("loadBtn").onclick = () => {
   $("pasteErr").textContent = "";
   try {
     const obj = JSON.parse($("pasteBox").value);
-    render(obj.report ?? obj, obj.note ?? obj.original_note ?? $("noteText").textContent);
+    const report = obj.report ?? obj;
+    if (typeof report !== "object" || report === null || Array.isArray(report)) throw new Error("expected a JSON object");
+    addPending(report, obj.note ?? obj.original_note ?? "", true);
+    $("pasteBox").value = "";
     window.scrollTo({ top: 0, behavior: "smooth" });
-  } catch (e) { $("pasteErr").textContent = "That isn't valid JSON: " + e.message; }
+  } catch (e) { $("pasteErr").textContent = "That isn't valid report JSON: " + e.message; }
 };
 
-// For teammates: ReviewForm.load(reportJson, noteText) shows any report; ReviewForm.getReport() reads the edits.
-window.ReviewForm = { load: render, getReport: currentReport };
+/* ---------- for teammates ---------- */
+function addPending(report, note, open = false) {
+  const item = { id: newId(), note: note || "", report: clone(report), draft: null };
+  queue.push(item);
+  saveQueue();
+  if (open || !currentId) openItem(item.id); else drawQueue();
+  return item.id;
+}
 
-render(SAMPLE_REPORT, SAMPLE_NOTE);
+window.ReviewForm = {
+  addPending,                                    // ReviewForm.addPending(reportJson, note)
+  load: (report, note) => addPending(report, note, true),
+  getReport: currentReport,
+  pending: () => clone(queue),
+};
+
+/* ---------- start ---------- */
+queue = loadQueue();
+if (queue.length) openItem(queue[0].id); else showDone();
 </script>
 </body>
 </html>
